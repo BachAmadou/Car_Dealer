@@ -86,6 +86,10 @@ st.markdown("""
         flex-wrap: wrap;
         gap: 10px;
     }
+    /* Hides the Streamlit footer and the top right header menu/GitHub icons */
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    #MainMenu {visibility: hidden;}
     </style>
     """, unsafe_allow_html=True)
 
