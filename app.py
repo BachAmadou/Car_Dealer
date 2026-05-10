@@ -159,7 +159,8 @@ def save_new_vehicle(name, buy_price, date_acquired, notes, exp_list, photo_file
             file_name = f"{car_id}_{f.name}"
             full_path = os.path.join(UPLOAD_DIR, file_name)
             # We store a relative path so the DB works on any computer/server
-            rel_path = os.path.join("car_photos", file_name)
+            # We force forward slashes (/) to ensure the database is portable between Windows and Linux
+            rel_path = f"car_photos/{file_name}"
             with open(full_path, "wb") as sf: sf.write(f.getbuffer())
             c.execute("INSERT INTO images (car_id, path) VALUES (?, ?)", (car_id, rel_path))
             
@@ -168,7 +169,7 @@ def save_new_vehicle(name, buy_price, date_acquired, notes, exp_list, photo_file
         for f in doc_files:
             file_name = f"{car_id}_{f.name}"
             full_path = os.path.join(DOCS_DIR, file_name)
-            rel_path = os.path.join("car_documents", file_name)
+            rel_path = f"car_documents/{file_name}"
             with open(full_path, "wb") as sf: sf.write(f.getbuffer())
             # We store the original name too so it's easy to read in the list
             c.execute("INSERT INTO documents (car_id, name, path) VALUES (?, ?, ?)", (car_id, f.name, rel_path))
@@ -203,14 +204,17 @@ def delete_vehicle(car_id):
     # 1. Find and delete physical image files from the computer
     c.execute("SELECT path FROM images WHERE car_id=?", (car_id,))
     for (path,) in c.fetchall():
-        full_p = os.path.join(DATA_BASE_DIR, path) if not os.path.isabs(path) else path
+        # Replace backslashes with forward slashes to fix Windows paths on Linux servers
+        p_clean = path.replace('\\', '/')
+        full_p = os.path.join(DATA_BASE_DIR, p_clean) if not os.path.isabs(p_clean) else p_clean
         if os.path.exists(full_p):
             os.remove(full_p)
             
     # 3. Find and delete physical document files
     c.execute("SELECT path FROM documents WHERE car_id=?", (car_id,))
     for (path,) in c.fetchall():
-        full_p = os.path.join(DATA_BASE_DIR, path) if not os.path.isabs(path) else path
+        p_clean = path.replace('\\', '/')
+        full_p = os.path.join(DATA_BASE_DIR, p_clean) if not os.path.isabs(p_clean) else p_clean
         if os.path.exists(full_p):
             os.remove(full_p)
             
@@ -229,7 +233,8 @@ def delete_images(image_paths):
     c = conn.cursor()
     for path in image_paths:
         # 1. Physically remove the file from your computer's folder
-        full_p = os.path.join(DATA_BASE_DIR, path) if not os.path.isabs(path) else path
+        p_clean = path.replace('\\', '/')
+        full_p = os.path.join(DATA_BASE_DIR, p_clean) if not os.path.isabs(p_clean) else p_clean
         if os.path.exists(full_p):
             os.remove(full_p)
         # 2. Remove the reference to this file from the database
@@ -247,7 +252,7 @@ def add_new_images(car_id, photo_files):
         for f in photo_files:
             file_name = f"{car_id}_{f.name}"
             full_path = os.path.join(UPLOAD_DIR, file_name)
-            rel_path = os.path.join("car_photos", file_name)
+            rel_path = f"car_photos/{file_name}"
             with open(full_path, "wb") as sf: sf.write(f.getbuffer())
             # Record the new path in the database
             c.execute("INSERT INTO images (car_id, path) VALUES (?, ?)", (car_id, rel_path))
@@ -262,7 +267,7 @@ def add_new_documents(car_id, doc_files):
         for f in doc_files:
             file_name = f"{car_id}_{f.name}"
             full_path = os.path.join(DOCS_DIR, file_name)
-            rel_path = os.path.join("car_documents", file_name)
+            rel_path = f"car_documents/{file_name}"
             with open(full_path, "wb") as sf: sf.write(f.getbuffer())
             c.execute("INSERT INTO documents (car_id, name, path) VALUES (?, ?, ?)", (car_id, f.name, rel_path))
     conn.commit()
@@ -273,7 +278,8 @@ def delete_documents(doc_paths):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     for path in doc_paths:
-        full_p = os.path.join(DATA_BASE_DIR, path) if not os.path.isabs(path) else path
+        p_clean = path.replace('\\', '/')
+        full_p = os.path.join(DATA_BASE_DIR, p_clean) if not os.path.isabs(p_clean) else p_clean
         if os.path.exists(full_p):
             os.remove(full_p)
         c.execute("DELETE FROM documents WHERE path=?", (path,))
@@ -670,7 +676,8 @@ elif st.session_state.view == "Details":
                 with p_cols[idx % 3]:
                     # Engineering Note: We reconstruct the path to handle both 
                     # relative (new) and absolute (old) paths safely.
-                    img_path = r['path']
+                    # We also replace backslashes to ensure compatibility with Linux servers.
+                    img_path = r['path'].replace('\\', '/')
                     full_img_p = os.path.join(DATA_BASE_DIR, img_path) if not os.path.isabs(img_path) else img_path
                     
                     if os.path.exists(full_img_p):
@@ -733,7 +740,7 @@ elif st.session_state.view == "Details":
                     # Action buttons for each file
                     with col_actions:
                         # 1. Download Button
-                        doc_path = d_row['path']
+                        doc_path = d_row['path'].replace('\\', '/')
                         full_doc_p = os.path.join(DATA_BASE_DIR, doc_path) if not os.path.isabs(doc_path) else doc_path
                         
                         if os.path.exists(full_doc_p):
@@ -751,13 +758,17 @@ elif st.session_state.view == "Details":
                     # If the file is CSV or Excel, we offer a "Quick Preview"
                     ext = os.path.splitext(d_row['name'])[1].lower()
                     # Only try to preview if the file actually exists
-                    if ext in ['.csv', '.xlsx', '.xls'] and os.path.exists(full_doc_p):
+                    # Use clean normalized path for checking existence
+                    p_clean = d_row['path'].replace('\\', '/')
+                    full_p_check = os.path.join(DATA_BASE_DIR, p_clean) if not os.path.isabs(p_clean) else p_clean
+                    
+                    if ext in ['.csv', '.xlsx', '.xls'] and os.path.exists(full_p_check):
                         with st.expander(f"🔍 Preview Content: {d_row['name']}"):
                             try:
                                 if ext == '.csv':
-                                    preview_df = pd.read_csv(full_doc_p)
+                                    preview_df = pd.read_csv(full_p_check)
                                 else:
-                                    preview_df = pd.read_excel(full_doc_p)
+                                    preview_df = pd.read_excel(full_p_check)
                                 st.dataframe(preview_df, hide_index=True)
                             except Exception as e:
                                 st.error(f"Could not read file content: {e}")
