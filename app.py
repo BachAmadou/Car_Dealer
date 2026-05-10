@@ -13,9 +13,11 @@ import datetime
 import plotly.express as px
 
 # --- 1. SETUP & THEMING ---
-# Engineering Note: If DATA_PATH is set in environment variables (like on a server), use it.
-# Otherwise, use the current folder. This prevents errors during local development.
-DATA_BASE_DIR = os.getenv("DATA_PATH", os.path.abspath(os.path.dirname(__file__)))
+# Get the absolute path of the directory where app.py is located
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Use an environment variable for the data path, defaulting to the local project folder
+DATA_BASE_DIR = os.getenv("DATA_PATH", BASE_DIR)
 UPLOAD_DIR = os.path.join(DATA_BASE_DIR, "car_photos")
 DOCS_DIR = os.path.join(DATA_BASE_DIR, "car_documents")
 DB_NAME = os.path.join(DATA_BASE_DIR, "dealer_inventory.db")
@@ -33,28 +35,48 @@ st.markdown("""
     <style>
     .main {
         background-color: var(--background-color);
+        font-family: 'Inter', sans-serif;
     }
+    /* Modernized Metrics */
     .stMetric {
         background-color: var(--secondary-background-color);
-        padding: 15px;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        padding: 20px !important;
+        border-radius: 15px !important;
+        box-shadow: 0 8px 16px rgba(0,0,0,0.03) !important;
         color: var(--text-color);
+        border: 1px solid rgba(128, 128, 128, 0.1);
     }
+    /* Glassmorphism effect for Expanders */
     div[data-testid="stExpander"] {
         background-color: var(--secondary-background-color);
         border: none;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        border-radius: 10px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        border-radius: 12px;
+        margin-bottom: 10px;
     }
+    /* Premium Car Cards */
     .car-card {
         background-color: var(--secondary-background-color);
-        padding: 20px;
-        border-radius: 12px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        margin-bottom: 20px;
-        border-left: 5px solid #007bff;
+        padding: 25px;
+        border-radius: 16px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+        margin-bottom: 15px;
+        border-left: 6px solid #007bff;
         color: var(--text-color);
+        transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+    }
+    .car-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 30px rgba(0,0,0,0.08);
+    }
+    /* Pill Style Badges */
+    .status-pill {
+        padding: 6px 16px;
+        border-radius: 30px;
+        font-weight: 700;
+        font-size: 12px;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
     }
     /* Ensures the card header wraps nicely on mobile devices */
     .car-header {
@@ -134,17 +156,22 @@ def save_new_vehicle(name, buy_price, date_acquired, notes, exp_list, photo_file
     # IF check: We only run this if the user actually uploaded files; otherwise, we skip it.
     if photo_files:
         for f in photo_files:
-            path = os.path.join(UPLOAD_DIR, f"{car_id}_{f.name}")
-            with open(path, "wb") as sf: sf.write(f.getbuffer())
-            c.execute("INSERT INTO images (car_id, path) VALUES (?, ?)", (car_id, path))
+            file_name = f"{car_id}_{f.name}"
+            full_path = os.path.join(UPLOAD_DIR, file_name)
+            # We store a relative path so the DB works on any computer/server
+            rel_path = os.path.join("car_photos", file_name)
+            with open(full_path, "wb") as sf: sf.write(f.getbuffer())
+            c.execute("INSERT INTO images (car_id, path) VALUES (?, ?)", (car_id, rel_path))
             
     # IF check: Save documents (Excel, Word, etc.) if provided
     if doc_files:
         for f in doc_files:
-            path = os.path.join(DOCS_DIR, f"{car_id}_{f.name}")
-            with open(path, "wb") as sf: sf.write(f.getbuffer())
+            file_name = f"{car_id}_{f.name}"
+            full_path = os.path.join(DOCS_DIR, file_name)
+            rel_path = os.path.join("car_documents", file_name)
+            with open(full_path, "wb") as sf: sf.write(f.getbuffer())
             # We store the original name too so it's easy to read in the list
-            c.execute("INSERT INTO documents (car_id, name, path) VALUES (?, ?, ?)", (car_id, f.name, path))
+            c.execute("INSERT INTO documents (car_id, name, path) VALUES (?, ?, ?)", (car_id, f.name, rel_path))
             
     conn.commit()
     conn.close()
@@ -176,14 +203,16 @@ def delete_vehicle(car_id):
     # 1. Find and delete physical image files from the computer
     c.execute("SELECT path FROM images WHERE car_id=?", (car_id,))
     for (path,) in c.fetchall():
-        if os.path.exists(path):
-            os.remove(path)
+        full_p = os.path.join(DATA_BASE_DIR, path) if not os.path.isabs(path) else path
+        if os.path.exists(full_p):
+            os.remove(full_p)
             
     # 3. Find and delete physical document files
     c.execute("SELECT path FROM documents WHERE car_id=?", (car_id,))
     for (path,) in c.fetchall():
-        if os.path.exists(path):
-            os.remove(path)
+        full_p = os.path.join(DATA_BASE_DIR, path) if not os.path.isabs(path) else path
+        if os.path.exists(full_p):
+            os.remove(full_p)
             
     # 4. Delete database records
     c.execute("DELETE FROM documents WHERE car_id=?", (car_id,))
@@ -200,8 +229,9 @@ def delete_images(image_paths):
     c = conn.cursor()
     for path in image_paths:
         # 1. Physically remove the file from your computer's folder
-        if os.path.exists(path):
-            os.remove(path)
+        full_p = os.path.join(DATA_BASE_DIR, path) if not os.path.isabs(path) else path
+        if os.path.exists(full_p):
+            os.remove(full_p)
         # 2. Remove the reference to this file from the database
         c.execute("DELETE FROM images WHERE path=?", (path,))
     
@@ -215,11 +245,12 @@ def add_new_images(car_id, photo_files):
     # IF check: Ensure there is at least one file to process before trying to save.
     if photo_files:
         for f in photo_files:
-            # Create a unique filename using the car ID
-            path = os.path.join(UPLOAD_DIR, f"{car_id}_{f.name}")
-            with open(path, "wb") as sf: sf.write(f.getbuffer())
+            file_name = f"{car_id}_{f.name}"
+            full_path = os.path.join(UPLOAD_DIR, file_name)
+            rel_path = os.path.join("car_photos", file_name)
+            with open(full_path, "wb") as sf: sf.write(f.getbuffer())
             # Record the new path in the database
-            c.execute("INSERT INTO images (car_id, path) VALUES (?, ?)", (car_id, path))
+            c.execute("INSERT INTO images (car_id, path) VALUES (?, ?)", (car_id, rel_path))
     conn.commit()
     conn.close()
 
@@ -229,9 +260,11 @@ def add_new_documents(car_id, doc_files):
     c = conn.cursor()
     if doc_files:
         for f in doc_files:
-            path = os.path.join(DOCS_DIR, f"{car_id}_{f.name}")
-            with open(path, "wb") as sf: sf.write(f.getbuffer())
-            c.execute("INSERT INTO documents (car_id, name, path) VALUES (?, ?, ?)", (car_id, f.name, path))
+            file_name = f"{car_id}_{f.name}"
+            full_path = os.path.join(DOCS_DIR, file_name)
+            rel_path = os.path.join("car_documents", file_name)
+            with open(full_path, "wb") as sf: sf.write(f.getbuffer())
+            c.execute("INSERT INTO documents (car_id, name, path) VALUES (?, ?, ?)", (car_id, f.name, rel_path))
     conn.commit()
     conn.close()
 
@@ -240,8 +273,9 @@ def delete_documents(doc_paths):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     for path in doc_paths:
-        if os.path.exists(path):
-            os.remove(path)
+        full_p = os.path.join(DATA_BASE_DIR, path) if not os.path.isabs(path) else path
+        if os.path.exists(full_p):
+            os.remove(full_p)
         c.execute("DELETE FROM documents WHERE path=?", (path,))
     conn.commit()
     conn.close()
@@ -386,31 +420,31 @@ if st.session_state.view == "Home":
                             <span style="font-size: 24px; font-weight: bold; color: var(--text-color);">{row['name']}</span><br>
                             <span style="font-size: 14px; opacity: 0.8;">📅 Acquired: {row['date_acquired'] if row['date_acquired'] else 'N/A'}</span>
                         </div>
-                        <span style="background-color: {'#d4edda' if row['sale_price'] > 0 else '#fff3cd'}; 
+                        <span class="status-pill" style="background-color: {'#d4edda' if row['sale_price'] > 0 else '#fff3cd'}; 
                                      color: {'#155724' if row['sale_price'] > 0 else '#856404'}; 
-                                     padding: 5px 12px; border-radius: 20px; font-weight: bold; font-size: 14px;">
+                                     border: 1px solid {'#c3e6cb' if row['sale_price'] > 0 else '#ffeeba'};">
                             {'SOLD' if row['sale_price'] > 0 else 'IN STOCK'}
                         </span>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
-                c1.write(f"**Total Investment:**  \n${row['total_cost']:,.2f}")
+                c1, c2, c3, c4 = st.columns([2, 2, 2, 1.2])
+                c1.markdown(f"<p style='margin-bottom:0; opacity:0.7; font-size:13px;'>INVESTMENT</p><h4 style='margin-top:0;'>${row['total_cost']:,.2f}</h4>", unsafe_allow_html=True)
                 
                 # IF/ELSE: If the car is sold (price > 0), show profit/loss. 
                 # Otherwise, just show that the sale is pending.
                 if row['sale_price'] > 0:
                     prof = row['sale_price'] - row['total_cost']
-                    c2.write(f"**Profit:**  \n:{'green' if prof >= 0 else 'red'}[${prof:,.2f}]")
+                    color = "green" if prof >= 0 else "red"
+                    c2.markdown(f"<p style='margin-bottom:0; opacity:0.7; font-size:13px;'>PROFIT</p><h4 style='margin-top:0; color:{color};'>${prof:,.2f}</h4>", unsafe_allow_html=True)
                 else:
-                    c2.write("**Sale Status:**  \nPending")
+                    c2.markdown(f"<p style='margin-bottom:0; opacity:0.7; font-size:13px;'>STATUS</p><h4 style='margin-top:0; opacity:0.5;'>Pending</h4>", unsafe_allow_html=True)
                 
-                c3.write(f"**Purchase Price:**  \n${row['buy_price']:,.2f}")
+                c3.markdown(f"<p style='margin-bottom:0; opacity:0.7; font-size:13px;'>PURCHASE</p><h4 style='margin-top:0;'>${row['buy_price']:,.2f}</h4>", unsafe_allow_html=True)
                 
-                # Button to switch to the "Details" page for this specific car
-                # IF check: When clicked, we change the app's 'view' memory and refresh.
-                if c4.button("Open Details", key=f"v_{row['id']}", use_container_width=True):
+                st.write("") # Spacer for vertical alignment
+                if c4.button("View Full Details", key=f"v_{row['id']}", use_container_width=True, type="secondary"):
                     st.session_state.car_id = row['id']
                     st.session_state.view = "Details"
                     st.session_state.delete_confirm = False # Reset delete status when opening new car
@@ -634,7 +668,16 @@ elif st.session_state.view == "Details":
             p_cols = st.columns(3)
             for idx, r in imgs.iterrows():
                 with p_cols[idx % 3]:
-                    st.image(r['path'], use_container_width=True)
+                    # Engineering Note: We reconstruct the path to handle both 
+                    # relative (new) and absolute (old) paths safely.
+                    img_path = r['path']
+                    full_img_p = os.path.join(DATA_BASE_DIR, img_path) if not os.path.isabs(img_path) else img_path
+                    
+                    if os.path.exists(full_img_p):
+                        st.image(full_img_p, use_container_width=True)
+                    else:
+                        st.warning("Image file missing")
+                        
                     # Unique checkbox for each image using its database index
                     # IF check: If the user checks the box, add the image path to our 'to_delete' list.
                     if st.checkbox("Select to delete", key=f"img_chk_{idx}"):
@@ -690,8 +733,15 @@ elif st.session_state.view == "Details":
                     # Action buttons for each file
                     with col_actions:
                         # 1. Download Button
-                        with open(d_row['path'], "rb") as file:
-                            st.download_button(label="📥 Download", data=file, file_name=d_row['name'], key=f"dl_{idx}")
+                        doc_path = d_row['path']
+                        full_doc_p = os.path.join(DATA_BASE_DIR, doc_path) if not os.path.isabs(doc_path) else doc_path
+                        
+                        if os.path.exists(full_doc_p):
+                            with open(full_doc_p, "rb") as file:
+                                st.download_button(label="📥 Download", data=file, file_name=d_row['name'], key=f"dl_{idx}")
+                        else:
+                            st.error("File missing")
+
                         
                         # 2. Delete Checkbox
                         if st.checkbox("Select for removal", key=f"doc_del_{idx}"):
@@ -700,13 +750,14 @@ elif st.session_state.view == "Details":
                     # --- FEATURE: "READ" CONTENT ---
                     # If the file is CSV or Excel, we offer a "Quick Preview"
                     ext = os.path.splitext(d_row['name'])[1].lower()
-                    if ext in ['.csv', '.xlsx', '.xls']:
+                    # Only try to preview if the file actually exists
+                    if ext in ['.csv', '.xlsx', '.xls'] and os.path.exists(full_doc_p):
                         with st.expander(f"🔍 Preview Content: {d_row['name']}"):
                             try:
                                 if ext == '.csv':
-                                    preview_df = pd.read_csv(d_row['path'])
+                                    preview_df = pd.read_csv(full_doc_p)
                                 else:
-                                    preview_df = pd.read_excel(d_row['path'])
+                                    preview_df = pd.read_excel(full_doc_p)
                                 st.dataframe(preview_df, hide_index=True)
                             except Exception as e:
                                 st.error(f"Could not read file content: {e}")
