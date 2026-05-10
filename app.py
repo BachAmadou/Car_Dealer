@@ -86,10 +86,17 @@ st.markdown("""
         flex-wrap: wrap;
         gap: 10px;
     }
-    /* Hides the Streamlit footer and the top right header menu/GitHub icons */
+    
+    /* Hides Streamlit branding and UI elements */
+    #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    #MainMenu {visibility: hidden;}
+    div[data-testid="stStatusWidget"] {
+        visibility: hidden;
+    }
+    .stAppDeployButton {
+        display: none;
+    }
     </style>
     """, unsafe_allow_html=True)
 
